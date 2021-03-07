@@ -4,7 +4,7 @@ setup:
 
 dependencies:
 	@make setup
-	@poetry install --no-root
+	@poetry install --no-root --extras "auth"
 
 update:
 	@poetry update
