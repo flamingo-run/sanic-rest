@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "sanic-rest"
+version = "1.0.0"
+description = "Sanic Rest Framework with Google Cloud Datastore"
+authors = ["Joao Daher <joao@daher.dev>"]
+repository = "https://github.com/flamingo-run/sanic-rest"
+readme = "README.md"
+keywords = ["sanic", "restful", "datastore"]
+packages = [
+    { include = "sanic_rest" },
+]
+
+
+[tool.poetry.dependencies]
+python = ">=3.8,<3.10"
+sanic = "*"
+sanic-openapi = "*"
+gcp-pilot = { version = "*", extras = ["datastore"]}
+
+
+[tool.poetry.dev-dependencies]
+pylint = "*"
+nose = "*"
+coverage = "*"
+
+
+[build-system]
+requires = ["poetry"]
+build-backend = "poetry.masonry.api"
