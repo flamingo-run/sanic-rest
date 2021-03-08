@@ -128,9 +128,17 @@ class ListView(ViewBase, abc.ABC):
 
 
 class DetailView(ViewBase, abc.ABC):
+    def _parse_pk(self, pk: str):
+        pk_field_name = self.model.Meta.pk_field
+        pk_field_type = self.model.Meta.fields[self.model.Meta.pk_field]
+        try:
+            return pk_field_type(pk)
+        except ValueError:
+            raise exceptions.ValidationError(f"{pk_field_name} field must be {pk_field_type.__name__}")
+
     async def get(self, request: Request, pk: str) -> HTTPResponse:
         try:
-            obj = self.model.documents.get(id=pk)
+            obj = self.perform_get(pk=self._parse_pk(pk=pk), query_filters={})
         except DoesNotExist as e:
             raise exceptions.NotFoundError() from e
 
@@ -157,7 +165,7 @@ class DetailView(ViewBase, abc.ABC):
         else:
             payload = request.json
             self.validate(data=payload, partial=True)
-        obj = await self.perform_update(pk=pk, data=payload, files=request.files)
+        obj = await self.perform_update(pk=self._parse_pk(pk=pk), data=payload, files=request.files)
 
         data = obj.serialize()
         return json(data, 200)
