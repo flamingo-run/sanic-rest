@@ -138,7 +138,7 @@ class DetailView(ViewBase, abc.ABC):
 
     async def get(self, request: Request, pk: str) -> HTTPResponse:
         try:
-            obj = self.perform_get(pk=self._parse_pk(pk=pk), query_filters={})
+            obj = await self.perform_get(pk=self._parse_pk(pk=pk), query_filters={})
         except DoesNotExist as e:
             raise exceptions.NotFoundError() from e
 

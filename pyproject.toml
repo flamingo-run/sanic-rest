@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "sanic-rest"
-version = "1.1.1"
+version = "1.1.2"
 description = "Sanic Rest Framework with Google Cloud Datastore"
 authors = ["Joao Daher <joao@daher.dev>"]
 repository = "https://github.com/flamingo-run/sanic-rest"
