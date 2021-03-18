@@ -1,3 +1,4 @@
+from enum import Enum
 import inspect
 from dataclasses import _MISSING_TYPE, dataclass
 from typing import Any, List, Dict, _GenericAlias, Union
@@ -18,6 +19,8 @@ class FieldInfo:
             field_type = field_klass.__name__
             if issubclass(field_klass, EmbeddedDocument):
                 return ModelInfo.build(model_klass=field_klass, required=required)
+            if issubclass(field_klass, Enum):
+                return OptionsFieldInfo(type=field_type, required=required, choices=[e.value for e in field_klass])
             return FieldInfo(type=field_type, required=required)
         elif isinstance(field_klass, _GenericAlias):
             field_type = field_klass._name
@@ -65,6 +68,27 @@ class FieldInfo:
             'type': self.type,
             'required': self.required,
         }
+
+
+@dataclass
+class OptionsFieldInfo(FieldInfo):
+    choices: List[Any]
+
+    @property
+    def as_dict(self) -> Dict[str, Any]:
+        data = super().as_dict
+        data['choices'] = self.choices
+        return data
+
+    def validate(self, item: Dict[Any, Any]) -> Union[str, None]:
+        error = super().validate(item=item)
+        if error:
+            return error
+
+        if item not in self.choices:
+            return f"It must be one of {self.choices}. Not {item}"
+
+        return None
 
 
 @dataclass
