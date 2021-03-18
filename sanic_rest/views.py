@@ -54,6 +54,8 @@ class ViewBase(HTTPMethodView):
 
 
 class ListView(ViewBase, abc.ABC):
+    search_field: str = None
+
     async def get(self, request: Request) -> HTTPResponse:
         query_args, page, page_size = self._parse_query_args(request=request)
         items = await self.perform_get(query_filters=query_args)
@@ -72,8 +74,11 @@ class ListView(ViewBase, abc.ABC):
         return json(response, 200 if any(items_in_page) else 404)
 
     def _parse_query_args(self, request: Request) -> Tuple[Dict[str, Any], int, int]:
-        query_args = {}
+        query_args = dict()
         for key, value in request.query_args:
+            if key == 'q':
+                key = f'{self.search_field}__startswith'
+
             if key not in query_args:
                 query_args[key] = value
             elif isinstance(query_args[key], list):
