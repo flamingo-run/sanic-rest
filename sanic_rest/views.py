@@ -7,6 +7,7 @@ from typing import Tuple, Dict, Any, List
 
 import aiofiles
 from gcp_pilot.datastore import Document, DoesNotExist
+from gcp_pilot.exceptions import ValidationError
 from sanic.request import Request, RequestParameters, File
 from sanic.response import json, HTTPResponse
 from sanic.views import HTTPMethodView
@@ -58,7 +59,10 @@ class ListView(ViewBase, abc.ABC):
 
     async def get(self, request: Request) -> HTTPResponse:
         query_args, page, page_size = self._parse_query_args(request=request)
-        items = await self.perform_get(query_filters=query_args)
+        try:
+            items = await self.perform_get(query_filters=query_args)
+        except ValidationError as e:
+            raise exceptions.ValidationError(message=str(e))
 
         items_in_page = self._paginate(items=items, page=page, page_size=page_size)
 
@@ -116,7 +120,12 @@ class ListView(ViewBase, abc.ABC):
     async def post(self, request: Request) -> HTTPResponse:
         data = request.json
         self.validate(data=data, partial=False)
-        obj = await self.perform_create(data=data)
+
+        try:
+            obj = await self.perform_create(data=data)
+        except ValidationError as e:
+            raise exceptions.ValidationError(message=str(e))
+
         data = obj.serialize()
         return json(data, 201)
 
@@ -146,6 +155,8 @@ class DetailView(ViewBase, abc.ABC):
             obj = await self.perform_get(pk=self._parse_pk(pk=pk), query_filters={})
         except DoesNotExist as e:
             raise exceptions.NotFoundError() from e
+        except ValidationError as e:
+            raise exceptions.ValidationError(message=str(e))
 
         data = obj.serialize()
         return json(data, 200)
@@ -156,7 +167,12 @@ class DetailView(ViewBase, abc.ABC):
     async def put(self, request: Request, pk: str) -> HTTPResponse:
         payload = request.json
         self.validate(data=payload, partial=True)
-        obj = await self.perform_create(data=payload)
+
+        try:
+            obj = await self.perform_create(data=payload)
+        except ValidationError as e:
+            raise exceptions.ValidationError(message=str(e))
+
         data = obj.serialize()
         return json(data, 200)
 
@@ -170,7 +186,11 @@ class DetailView(ViewBase, abc.ABC):
         else:
             payload = request.json
             self.validate(data=payload, partial=True)
-        obj = await self.perform_update(pk=self._parse_pk(pk=pk), data=payload, files=request.files)
+
+        try:
+            obj = await self.perform_update(pk=self._parse_pk(pk=pk), data=payload, files=request.files)
+        except ValidationError as e:
+            raise exceptions.ValidationError(message=str(e))
 
         data = obj.serialize()
         return json(data, 200)
@@ -217,7 +237,11 @@ class ActionView(ViewBase):
         except DoesNotExist as e:
             raise exceptions.NotFoundError() from e
 
-        data, status = await self.perform_get(request=request, obj=obj)
+        try:
+            data, status = await self.perform_get(request=request, obj=obj)
+        except ValidationError as e:
+            raise exceptions.ValidationError(message=str(e))
+
         return json(data, status)
 
     @abc.abstractmethod
@@ -230,7 +254,11 @@ class ActionView(ViewBase):
         except DoesNotExist as e:
             raise exceptions.NotFoundError() from e
 
-        data, status = await self.perform_post(request=request, obj=obj)
+        try:
+            data, status = await self.perform_post(request=request, obj=obj)
+        except ValidationError as e:
+            raise exceptions.ValidationError(message=str(e))
+
         return json(data, status)
 
     @abc.abstractmethod
