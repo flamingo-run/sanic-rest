@@ -50,7 +50,7 @@ class FieldInfo:
                 )
             else:
                 raise RuntimeError(f"Unable to handle field class {field_klass}")
-        elif field_klass == Any:
+        elif field_klass == Any:  # pylint: disable=comparison-with-callable
             return FieldInfo(type='any', required=required)
         else:
             raise RuntimeError(f"Unable to handle field class {field_klass}")

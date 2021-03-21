@@ -147,8 +147,8 @@ class DetailView(ViewBase, abc.ABC):
         pk_field_type = self.model.Meta.fields[self.model.Meta.pk_field]
         try:
             return pk_field_type(pk)
-        except ValueError:
-            raise exceptions.ValidationError(f"{pk_field_name} field must be {pk_field_type.__name__}")
+        except ValueError as e:
+            raise exceptions.ValidationError(f"{pk_field_name} field must be {pk_field_type.__name__}") from e
 
     async def get(self, request: Request, pk: str) -> HTTPResponse:
         try:

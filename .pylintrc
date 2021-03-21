@@ -75,6 +75,7 @@ disable=missing-docstring,
         logging-format-interpolation,
         too-many-public-methods,
         too-many-locals,
+        too-many-return-statements,
         f-string-without-interpolation,
         fixme
 
