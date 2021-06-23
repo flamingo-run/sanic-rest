@@ -265,6 +265,23 @@ class ActionView(ViewBase):
     async def perform_post(self, request: Request, obj: Document) -> ResponseType:
         raise NotImplementedError()
 
+    async def put(self, request: Request, pk: str) -> HTTPResponse:
+        try:
+            obj = self.get_model(pk=pk)
+        except DoesNotExist as e:
+            raise exceptions.NotFoundError() from e
+
+        try:
+            data, status = await self.perform_put(request=request, obj=obj)
+        except ValidationError as e:
+            raise exceptions.ValidationError(message=str(e))
+
+        return json(data, status)
+
+    @abc.abstractmethod
+    async def perform_put(self, request: Request, obj: Document) -> ResponseType:
+        raise NotImplementedError()
+
     async def delete(self, request: Request, pk: str) -> HTTPResponse:
         try:
             obj = self.get_model(pk=pk)
