@@ -150,9 +150,18 @@ class DetailView(ViewBase, abc.ABC):
         except ValueError as e:
             raise exceptions.ValidationError(f"{pk_field_name} field must be {pk_field_type.__name__}") from e
 
-    async def get(self, request: Request, pk: str) -> HTTPResponse:
+    def get_model(self, pk: str, query_filters: Dict = None) -> Document:
+        query_filters = query_filters or {}
         try:
-            obj = await self.perform_get(pk=self._parse_pk(pk=pk), query_filters={})
+            return self.model.documents.get(id=self._parse_pk(pk=pk), **query_filters)
+        except DoesNotExist as e:
+            raise exceptions.NotFoundError() from e
+
+    async def get(self, request: Request, pk: str) -> HTTPResponse:
+        current_obj = self.get_model(pk=pk)
+
+        try:
+            obj = await self.perform_get(obj=current_obj, query_filters={})
         except DoesNotExist as e:
             raise exceptions.NotFoundError() from e
         except ValidationError as e:
@@ -161,26 +170,30 @@ class DetailView(ViewBase, abc.ABC):
         data = obj.serialize()
         return json(data, 200)
 
-    async def perform_get(self, pk: str, query_filters) -> Document:
-        return self.model.documents.get(id=pk, **query_filters)
+    async def perform_get(self, obj: Document, query_filters) -> Document:
+        return obj
 
     async def put(self, request: Request, pk: str) -> HTTPResponse:
+        current_obj = self.get_model(pk=pk)
+
         payload = request.json
         self.validate(data=payload, partial=True)
 
         try:
-            obj = await self.perform_create(pk=pk, data=payload)
+            obj = await self.perform_create(obj=current_obj, data=payload)
         except ValidationError as e:
             raise exceptions.ValidationError(message=str(e))
 
         data = obj.serialize()
         return json(data, 200)
 
-    async def perform_create(self, pk: str, data: PayloadType) -> Document:
-        obj = self.model.deserialize(**data)
+    async def perform_create(self, obj: Document, data: PayloadType) -> Document:
+        obj = self.model.deserialize(pk=obj.pk, **data)
         return obj.save()
 
     async def patch(self, request: Request, pk: str) -> HTTPResponse:
+        current_obj = self.get_model(pk=pk)
+
         if request.files:
             payload = {}
         else:
@@ -188,15 +201,15 @@ class DetailView(ViewBase, abc.ABC):
             self.validate(data=payload, partial=True)
 
         try:
-            obj = await self.perform_update(pk=self._parse_pk(pk=pk), data=payload, files=request.files)
+            obj = await self.perform_update(obj=current_obj, data=payload, files=request.files)
         except ValidationError as e:
             raise exceptions.ValidationError(message=str(e))
 
         data = obj.serialize()
         return json(data, 200)
 
-    async def perform_update(self, pk: str, data: PayloadType, files: RequestParameters) -> Document:
-        obj = self.model.documents.update(pk=pk, **data)
+    async def perform_update(self, obj: Document, data: PayloadType, files: RequestParameters) -> Document:
+        obj = self.model.documents.update(pk=obj.pk, **data)
 
         file_updates: Dict[str, Any] = defaultdict(list)
         for key, file in files.items():
@@ -210,7 +223,7 @@ class DetailView(ViewBase, abc.ABC):
             else:
                 key = key.split('__')[0]
                 file_updates[key].append(filepath)
-        obj = self.model.documents.update(pk=pk, **file_updates)
+        obj = self.model.documents.update(pk=obj.pk, **file_updates)
 
         return obj
 
