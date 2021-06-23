@@ -161,7 +161,7 @@ class DetailView(ViewBase, abc.ABC):
         data = obj.serialize()
         return json(data, 200)
 
-    async def perform_get(self, pk, query_filters) -> Document:
+    async def perform_get(self, pk: str, query_filters) -> Document:
         return self.model.documents.get(id=pk, **query_filters)
 
     async def put(self, request: Request, pk: str) -> HTTPResponse:
@@ -169,14 +169,14 @@ class DetailView(ViewBase, abc.ABC):
         self.validate(data=payload, partial=True)
 
         try:
-            obj = await self.perform_create(data=payload)
+            obj = await self.perform_create(pk=pk, data=payload)
         except ValidationError as e:
             raise exceptions.ValidationError(message=str(e))
 
         data = obj.serialize()
         return json(data, 200)
 
-    async def perform_create(self, data: PayloadType) -> Document:
+    async def perform_create(self, pk: str, data: PayloadType) -> Document:
         obj = self.model.deserialize(**data)
         return obj.save()
 
