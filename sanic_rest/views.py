@@ -53,6 +53,21 @@ class ViewBase(HTTPMethodView):
 
         return errors
 
+    def _parse_pk(self, pk: str):
+        pk_field_name = self.model.Meta.pk_field
+        pk_field_type = self.model.Meta.fields[self.model.Meta.pk_field]
+        try:
+            return pk_field_type(pk)
+        except ValueError as e:
+            raise exceptions.ValidationError(f"{pk_field_name} field must be {pk_field_type.__name__}") from e
+
+    def get_model_or_404(self, pk: str, query_filters: Dict = None) -> Document:
+        query_filters = query_filters or {}
+        try:
+            return self.model.documents.get(id=self._parse_pk(pk=pk), **query_filters)
+        except DoesNotExist as e:
+            raise exceptions.NotFoundError() from e
+
 
 class ListView(ViewBase, abc.ABC):
     search_field: str = None
@@ -142,23 +157,8 @@ class ListView(ViewBase, abc.ABC):
 
 
 class DetailView(ViewBase, abc.ABC):
-    def _parse_pk(self, pk: str):
-        pk_field_name = self.model.Meta.pk_field
-        pk_field_type = self.model.Meta.fields[self.model.Meta.pk_field]
-        try:
-            return pk_field_type(pk)
-        except ValueError as e:
-            raise exceptions.ValidationError(f"{pk_field_name} field must be {pk_field_type.__name__}") from e
-
-    def get_model(self, pk: str, query_filters: Dict = None) -> Document:
-        query_filters = query_filters or {}
-        try:
-            return self.model.documents.get(id=self._parse_pk(pk=pk), **query_filters)
-        except DoesNotExist as e:
-            raise exceptions.NotFoundError() from e
-
     async def get(self, request: Request, pk: str) -> HTTPResponse:
-        current_obj = self.get_model(pk=pk)
+        current_obj = self.get_model_or_404(pk=pk)
 
         try:
             obj = await self.perform_get(obj=current_obj, query_filters={})
@@ -174,7 +174,7 @@ class DetailView(ViewBase, abc.ABC):
         return obj
 
     async def put(self, request: Request, pk: str) -> HTTPResponse:
-        current_obj = self.get_model(pk=pk)
+        current_obj = self.get_model_or_404(pk=pk)
 
         payload = request.json
         self.validate(data=payload, partial=True)
@@ -192,7 +192,7 @@ class DetailView(ViewBase, abc.ABC):
         return obj.save()
 
     async def patch(self, request: Request, pk: str) -> HTTPResponse:
-        current_obj = self.get_model(pk=pk)
+        current_obj = self.get_model_or_404(pk=pk)
 
         if request.files:
             payload = {}
@@ -240,70 +240,113 @@ class DetailView(ViewBase, abc.ABC):
         self.model.documents.delete(pk=pk)
 
 
-class ActionView(ViewBase):
-    def get_model(self, pk: str) -> Document:
-        return self.model.documents.get(id=pk)
-
-    async def get(self, request: Request, pk: str) -> HTTPResponse:
-        try:
-            obj = self.get_model(pk=pk)
-        except DoesNotExist as e:
-            raise exceptions.NotFoundError() from e
+class NestedListView(ViewBase):
+    async def get(self, request: Request, nest_pk: str) -> HTTPResponse:
+        nest_obj = self.get_model_or_404(pk=nest_pk)
 
         try:
-            data, status = await self.perform_get(request=request, obj=obj)
+            data, status = await self.perform_get(request=request, nest_obj=nest_obj)
         except ValidationError as e:
             raise exceptions.ValidationError(message=str(e))
 
         return json(data, status)
 
     @abc.abstractmethod
-    async def perform_get(self, request: Request, obj: Document) -> ResponseType:
+    async def perform_get(self, request: Request, nest_obj: Document) -> ResponseType:
         raise NotImplementedError()
 
-    async def post(self, request: Request, pk: str) -> HTTPResponse:
-        try:
-            obj = self.get_model(pk=pk)
-        except DoesNotExist as e:
-            raise exceptions.NotFoundError() from e
+    async def post(self, request: Request, nest_pk: str) -> HTTPResponse:
+        nest_obj = self.get_model_or_404(pk=nest_pk)
 
         try:
-            data, status = await self.perform_post(request=request, obj=obj)
+            data, status = await self.perform_post(request=request, nest_obj=nest_obj)
         except ValidationError as e:
             raise exceptions.ValidationError(message=str(e))
 
         return json(data, status)
 
     @abc.abstractmethod
-    async def perform_post(self, request: Request, obj: Document) -> ResponseType:
+    async def perform_post(self, request: Request, nest_obj: Document) -> ResponseType:
         raise NotImplementedError()
 
-    async def put(self, request: Request, pk: str) -> HTTPResponse:
-        try:
-            obj = self.get_model(pk=pk)
-        except DoesNotExist as e:
-            raise exceptions.NotFoundError() from e
+    async def put(self, request: Request, nest_pk: str) -> HTTPResponse:
+        nest_obj = self.get_model_or_404(pk=nest_pk)
 
         try:
-            data, status = await self.perform_put(request=request, obj=obj)
+            data, status = await self.perform_put(request=request, nest_obj=nest_obj)
         except ValidationError as e:
             raise exceptions.ValidationError(message=str(e))
 
         return json(data, status)
 
     @abc.abstractmethod
-    async def perform_put(self, request: Request, obj: Document) -> ResponseType:
+    async def perform_put(self, request: Request, nest_obj: Document) -> ResponseType:
         raise NotImplementedError()
 
-    async def delete(self, request: Request, pk: str) -> HTTPResponse:
-        try:
-            obj = self.get_model(pk=pk)
-        except DoesNotExist as e:
-            raise exceptions.NotFoundError() from e
+    async def delete(self, request: Request, nest_pk: str) -> HTTPResponse:
+        nest_obj = self.get_model_or_404(pk=nest_pk)
 
-        data, status = await self.perform_delete(request=request, obj=obj)
+        data, status = await self.perform_delete(request=request, nest_obj=nest_obj)
         return json(data, status)
 
     @abc.abstractmethod
-    async def perform_delete(self, request: Request, obj: Document) -> ResponseType:
+    async def perform_delete(self, request: Request, nest_obj: Document) -> ResponseType:
+        raise NotImplementedError()
+
+
+class NestedDetailView(ViewBase):
+    async def get(self, request: Request, nest_pk: str, pk: str) -> HTTPResponse:
+        nest_obj = self.get_model_or_404(pk=nest_pk)
+        obj = self.get_model_or_404(pk=pk)
+
+        try:
+            data, status = await self.perform_get(request=request, nest_obj=nest_obj, obj=obj)
+        except ValidationError as e:
+            raise exceptions.ValidationError(message=str(e))
+
+        return json(data, status)
+
+    @abc.abstractmethod
+    async def perform_get(self, request: Request, nest_obj: Document, obj: Document) -> ResponseType:
+        raise NotImplementedError()
+
+    async def post(self, request: Request, nest_pk: str, pk: str) -> HTTPResponse:
+        nest_obj = self.get_model_or_404(pk=nest_pk)
+        obj = self.get_model_or_404(pk=pk)
+
+        try:
+            data, status = await self.perform_post(request=request, nest_obj=nest_obj, obj=obj)
+        except ValidationError as e:
+            raise exceptions.ValidationError(message=str(e))
+
+        return json(data, status)
+
+    @abc.abstractmethod
+    async def perform_post(self, request: Request, nest_obj: Document, obj: Document) -> ResponseType:
+        raise NotImplementedError()
+
+    async def put(self, request: Request, nest_pk: str, pk: str) -> HTTPResponse:
+        nest_obj = self.get_model_or_404(pk=nest_pk)
+        obj = self.get_model_or_404(pk=pk)
+
+        try:
+            data, status = await self.perform_put(request=request, nest_obj=nest_obj, obj=obj)
+        except ValidationError as e:
+            raise exceptions.ValidationError(message=str(e))
+
+        return json(data, status)
+
+    @abc.abstractmethod
+    async def perform_put(self, request: Request, nest_obj: Document, obj: Document) -> ResponseType:
+        raise NotImplementedError()
+
+    async def delete(self, request: Request, nest_pk: str, pk: str) -> HTTPResponse:
+        nest_obj = self.get_model_or_404(pk=nest_pk)
+        obj = self.get_model_or_404(pk=pk)
+
+        data, status = await self.perform_delete(request=request, nest_obj=nest_obj, obj=obj)
+        return json(data, status)
+
+    @abc.abstractmethod
+    async def perform_delete(self, request: Request, nest_obj: Document, obj: Document) -> ResponseType:
         raise NotImplementedError()

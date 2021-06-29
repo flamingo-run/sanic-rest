@@ -2,7 +2,7 @@ from abc import ABC
 
 from sanic_jwt import protected
 
-from sanic_rest.views import ListView, DetailView, ActionView
+from sanic_rest.views import ListView, DetailView, NestedListView, NestedDetailView
 
 
 class ProtectedMixin:
@@ -17,5 +17,9 @@ class ProtectedDetailView(ProtectedMixin, DetailView, ABC):
     pass
 
 
-class ProtectedActionView(ProtectedMixin, ActionView, ABC):
+class ProtectedNestListView(ProtectedMixin, NestedListView, ABC):
+    pass
+
+
+class ProtectedNestDetailView(ProtectedMixin, NestedDetailView, ABC):
     pass
