@@ -35,5 +35,9 @@ publish:
 	@poetry publish --build
 	@make clean
 
+dev-install:
+	@pip uninstall -y sanic_rest
+	@\rm -rv dist/; poetry build --format sdist && tar -xvf dist/*.tar.gz -O '*/setup.py' > setup.py && python setup.py develop
+
 
 .PHONY: setup dependencies update test check lint clean publish
