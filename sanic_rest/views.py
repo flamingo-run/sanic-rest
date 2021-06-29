@@ -3,7 +3,7 @@ import math
 import os
 from collections import defaultdict
 from pathlib import Path
-from typing import Tuple, Dict, Any, List
+from typing import Tuple, Dict, Any, List, Type
 
 import aiofiles
 from gcp_pilot.datastore import Document, DoesNotExist
@@ -20,8 +20,16 @@ ResponseType = Tuple[PayloadType, int]
 STAGE_DIR = os.environ.get('SANIC_FILE_DIR', default=Path(__file__).parent)
 
 
+def get_model_or_404(model_klass: Type[Document], pk: str, query_filters: Dict = None) -> Document:
+    query_filters = query_filters or {}
+    try:
+        return model_klass.documents.get(id=pk, **query_filters)
+    except DoesNotExist as e:
+        raise exceptions.NotFoundError() from e
+
+
 class ViewBase(HTTPMethodView):
-    model: Document
+    model: Type[Document]
 
     @classmethod
     async def write_file(cls, file: File, filepath: Path):
@@ -61,12 +69,8 @@ class ViewBase(HTTPMethodView):
         except ValueError as e:
             raise exceptions.ValidationError(f"{pk_field_name} field must be {pk_field_type.__name__}") from e
 
-    def get_model_or_404(self, pk: str, query_filters: Dict = None) -> Document:
-        query_filters = query_filters or {}
-        try:
-            return self.model.documents.get(id=self._parse_pk(pk=pk), **query_filters)
-        except DoesNotExist as e:
-            raise exceptions.NotFoundError() from e
+    def get_model(self, pk: str) -> Document:
+        return get_model_or_404(model_klass=self.model, pk=self._parse_pk(pk))
 
 
 class ListView(ViewBase, abc.ABC):
@@ -158,7 +162,7 @@ class ListView(ViewBase, abc.ABC):
 
 class DetailView(ViewBase, abc.ABC):
     async def get(self, request: Request, pk: str) -> HTTPResponse:
-        current_obj = self.get_model_or_404(pk=pk)
+        current_obj = self.get_model(pk=pk)
 
         try:
             obj = await self.perform_get(obj=current_obj, query_filters={})
@@ -174,7 +178,7 @@ class DetailView(ViewBase, abc.ABC):
         return obj
 
     async def put(self, request: Request, pk: str) -> HTTPResponse:
-        current_obj = self.get_model_or_404(pk=pk)
+        current_obj = self.get_model(pk=pk)
 
         payload = request.json
         self.validate(data=payload, partial=True)
@@ -192,7 +196,7 @@ class DetailView(ViewBase, abc.ABC):
         return obj.save()
 
     async def patch(self, request: Request, pk: str) -> HTTPResponse:
-        current_obj = self.get_model_or_404(pk=pk)
+        current_obj = self.get_model(pk=pk)
 
         if request.files:
             payload = {}
@@ -240,9 +244,16 @@ class DetailView(ViewBase, abc.ABC):
         self.model.documents.delete(pk=pk)
 
 
-class NestedListView(ViewBase):
+class NestViewBase(ViewBase):
+    nest_model: Type[Document]
+
+    def get_nest_model(self, pk: str):
+        return get_model_or_404(model_klass=self.nest_model, pk=pk)
+
+
+class NestedListView(NestViewBase):
     async def get(self, request: Request, nest_pk: str) -> HTTPResponse:
-        nest_obj = self.get_model_or_404(pk=nest_pk)
+        nest_obj = self.get_nest_model(pk=nest_pk)
 
         try:
             data, status = await self.perform_get(request=request, nest_obj=nest_obj)
@@ -256,7 +267,7 @@ class NestedListView(ViewBase):
         raise NotImplementedError()
 
     async def post(self, request: Request, nest_pk: str) -> HTTPResponse:
-        nest_obj = self.get_model_or_404(pk=nest_pk)
+        nest_obj = self.get_nest_model(pk=nest_pk)
 
         try:
             data, status = await self.perform_post(request=request, nest_obj=nest_obj)
@@ -270,7 +281,7 @@ class NestedListView(ViewBase):
         raise NotImplementedError()
 
     async def put(self, request: Request, nest_pk: str) -> HTTPResponse:
-        nest_obj = self.get_model_or_404(pk=nest_pk)
+        nest_obj = self.get_nest_model(pk=nest_pk)
 
         try:
             data, status = await self.perform_put(request=request, nest_obj=nest_obj)
@@ -284,7 +295,7 @@ class NestedListView(ViewBase):
         raise NotImplementedError()
 
     async def delete(self, request: Request, nest_pk: str) -> HTTPResponse:
-        nest_obj = self.get_model_or_404(pk=nest_pk)
+        nest_obj = self.get_nest_model(pk=nest_pk)
 
         data, status = await self.perform_delete(request=request, nest_obj=nest_obj)
         return json(data, status)
@@ -294,10 +305,10 @@ class NestedListView(ViewBase):
         raise NotImplementedError()
 
 
-class NestedDetailView(ViewBase):
+class NestedDetailView(NestViewBase):
     async def get(self, request: Request, nest_pk: str, pk: str) -> HTTPResponse:
-        nest_obj = self.get_model_or_404(pk=nest_pk)
-        obj = self.get_model_or_404(pk=pk)
+        nest_obj = self.get_nest_model(pk=nest_pk)
+        obj = self.get_model(pk=pk)
 
         try:
             data, status = await self.perform_get(request=request, nest_obj=nest_obj, obj=obj)
@@ -311,8 +322,8 @@ class NestedDetailView(ViewBase):
         raise NotImplementedError()
 
     async def post(self, request: Request, nest_pk: str, pk: str) -> HTTPResponse:
-        nest_obj = self.get_model_or_404(pk=nest_pk)
-        obj = self.get_model_or_404(pk=pk)
+        nest_obj = self.get_nest_model(pk=nest_pk)
+        obj = self.get_model(pk=pk)
 
         try:
             data, status = await self.perform_post(request=request, nest_obj=nest_obj, obj=obj)
@@ -326,8 +337,8 @@ class NestedDetailView(ViewBase):
         raise NotImplementedError()
 
     async def put(self, request: Request, nest_pk: str, pk: str) -> HTTPResponse:
-        nest_obj = self.get_model_or_404(pk=nest_pk)
-        obj = self.get_model_or_404(pk=pk)
+        nest_obj = self.get_nest_model(pk=nest_pk)
+        obj = self.get_model(pk=pk)
 
         try:
             data, status = await self.perform_put(request=request, nest_obj=nest_obj, obj=obj)
@@ -341,8 +352,8 @@ class NestedDetailView(ViewBase):
         raise NotImplementedError()
 
     async def delete(self, request: Request, nest_pk: str, pk: str) -> HTTPResponse:
-        nest_obj = self.get_model_or_404(pk=nest_pk)
-        obj = self.get_model_or_404(pk=pk)
+        nest_obj = self.get_nest_model(pk=nest_pk)
+        obj = self.get_model(pk=pk)
 
         data, status = await self.perform_delete(request=request, nest_obj=nest_obj, obj=obj)
         return json(data, status)
