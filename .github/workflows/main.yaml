@@ -12,15 +12,14 @@ jobs:
   linter:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
-
-    - name: Set up Python 3.8
-      uses: actions/setup-python@v1
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
       with:
-        python-version: 3.8
+        python-version: '3.10.x'
 
     - name: Cache dependencies
-      uses: actions/cache@v1
+      uses: actions/cache@v2
       with:
         path: ~/.cache/pypoetry
         key: ${{ runner.os }}-pip-${{ hashFiles('**/poetry.lock') }}
@@ -28,9 +27,6 @@ jobs:
     - name: Install Python dependencies
       run: |
         make dependencies
-      env:
-        PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-
     - name: Lint with pylint
       run: |
         make lint
@@ -38,15 +34,14 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
-
-      - name: Set up Python 3.8
-        uses: actions/setup-python@v1
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
         with:
-          python-version: 3.8
+          python-version: '3.10.x'
 
       - name: Cache dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cache/pypoetry
           key: ${{ runner.os }}-pip-${{ hashFiles('**/poetry.lock') }}
@@ -54,43 +49,61 @@ jobs:
       - name: Install Python dependencies
         run: |
           make dependencies
-        env:
-          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-
-      - name: Build the package
+      - name: Install as a package
         run: |
           poetry build
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.10.x'
+
+      - name: Cache dependencies
+        uses: actions/cache@v2
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install Python dependencies
+        run: |
+          make dependencies
+      - name: Verify security vulnerabilities
+        run: |
+          make check
 
   unit:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v1
-
-      - name: Set up Python 3.8
-        uses: actions/setup-python@v1
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
         with:
-          python-version: 3.8
+          python-version: '3.10.x'
+
+      - name: Cache dependencies
+        uses: actions/cache@v2
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/poetry.lock') }}
 
       - name: Install Python dependencies
         run: |
           make dependencies
-        env:
-          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
 
-      - name: Prepare coverage
-        run: |
-          curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
-          chmod +x ./cc-test-reporter
-          ./cc-test-reporter before-build
-
-      - name: Unit test with nose test suite
+      - name: Unit test
         run: |
           make unit
-
-      - name: Report coverage
-        run: |
-          poetry run coverage xml
-          GIT_COMMIT_SHA=`[[ -z "$GITHUB_HEAD_REF" ]] && echo $GITHUB_SHA || echo ${{ github.event.pull_request.head.sha }}`  GIT_BRANCH=`[[ -z "$GITHUB_HEAD_REF" ]] && echo ${GITHUB_REF/refs\/heads\/} || echo $GITHUB_HEAD_REF` ./cc-test-reporter after-build -t coverage.py --exit-code $?
         env:
-          CC_TEST_REPORTER_ID: ${{ secrets.CC_TEST_REPORTER_ID }}
+          LOG_LEVEL: ERROR
+
+      - name: Report Coverage
+        run: |
+          pip3 install --upgrade coveralls coverage[toml]
+          coveralls --service=github
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
