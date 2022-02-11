@@ -43,3 +43,5 @@ jobs:
         if: ${{ steps.versioning.outputs.upgraded == 'true' }}
         run: |
           make publish
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
