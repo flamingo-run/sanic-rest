@@ -236,7 +236,7 @@ class DetailView(ViewBase, abc.ABC):
         current_obj = self.get_model(pk=pk)
 
         data, files = self._parse_body(request=request)
-        validated_data = self.validate(data=data, partial=False)
+        validated_data = self.validate(data=data, partial=True)
 
         try:
             obj = await self.perform_update(obj=current_obj, data=validated_data, files=files)
