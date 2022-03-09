@@ -127,7 +127,7 @@ class ListView(ViewBase, abc.ABC):
             "count": len(items),
             "num_pages": int(math.ceil(len(items) / page_size)),
         }
-        return response.json(response_body, 200 if any(items_in_page) else 404)
+        return response.json(response_body, 200 if any(items_in_page) else 404, default=str)
 
     def _parse_query_args(self, request: request.Request) -> Tuple[Dict[str, Any], int, int]:
         query_args = dict()
@@ -179,7 +179,7 @@ class ListView(ViewBase, abc.ABC):
             raise exceptions.ValidationError(message=str(e))
 
         response_body = obj.serialize()
-        return response.json(response_body, 201)
+        return response.json(response_body, 201, default=str)
 
     async def perform_create(self, data: PayloadType, files: Dict[str, request.File]) -> Document:
         file_updates = await self.process_files(files=files)
@@ -189,7 +189,7 @@ class ListView(ViewBase, abc.ABC):
 
     async def options(self, request: request.Request) -> response.HTTPResponse:
         data = await self.perform_options()
-        return response.json(data, 200)
+        return response.json(data, 200, default=str)
 
     async def perform_options(self) -> PayloadType:
         return validator.ModelInfo.build(model_klass=self.model).as_dict
@@ -207,7 +207,7 @@ class DetailView(ViewBase, abc.ABC):
             raise exceptions.ValidationError(message=str(e))
 
         data = obj.serialize()
-        return response.json(data, 200)
+        return response.json(data, 200, default=str)
 
     async def perform_get(self, obj: Document, query_filters) -> Document:
         return obj
@@ -224,7 +224,7 @@ class DetailView(ViewBase, abc.ABC):
             raise exceptions.ValidationError(message=str(e))
 
         response_body = obj.serialize()
-        return response.json(response_body, 200)
+        return response.json(response_body, 200, default=str)
 
     async def perform_create(self, obj: Document, data: PayloadType, files: Dict[str, request.File]) -> Document:
         file_updates = await self.process_files(files=files)
@@ -244,7 +244,7 @@ class DetailView(ViewBase, abc.ABC):
             raise exceptions.ValidationError(message=str(e))
 
         response_body = obj.serialize()
-        return response.json(response_body, 200)
+        return response.json(response_body, 200, default=str)
 
     async def perform_update(self, obj: Document, data: PayloadType, files: Dict[str, request.File]) -> Document:
         file_updates = await self.process_files(files=files)
@@ -255,7 +255,7 @@ class DetailView(ViewBase, abc.ABC):
 
     async def delete(self, request: request.Request, pk: str) -> response.HTTPResponse:
         await self.perform_delete(pk=pk)
-        return response.json({}, 204)
+        return response.json({}, 204, default=str)
 
     async def perform_delete(self, pk: str) -> None:
         self.model.documents.delete(pk=pk)
@@ -277,7 +277,7 @@ class NestedListView(NestViewBase):
         except ValidationError as e:
             raise exceptions.ValidationError(message=str(e))
 
-        return response.json(data, status)
+        return response.json(data, status, default=str)
 
     @abc.abstractmethod
     async def perform_get(self, request: request.Request, nest_obj: Document) -> ResponseType:
@@ -291,7 +291,7 @@ class NestedListView(NestViewBase):
         except ValidationError as e:
             raise exceptions.ValidationError(message=str(e))
 
-        return response.json(data, status)
+        return response.json(data, status, default=str)
 
     @abc.abstractmethod
     async def perform_post(self, request: request.Request, nest_obj: Document) -> ResponseType:
@@ -305,7 +305,7 @@ class NestedListView(NestViewBase):
         except ValidationError as e:
             raise exceptions.ValidationError(message=str(e))
 
-        return response.json(data, status)
+        return response.json(data, status, default=str)
 
     @abc.abstractmethod
     async def perform_put(self, request: request.Request, nest_obj: Document) -> ResponseType:
@@ -315,7 +315,7 @@ class NestedListView(NestViewBase):
         nest_obj = self.get_nest_model(pk=nest_pk)
 
         data, status = await self.perform_delete(request=request, nest_obj=nest_obj)
-        return response.json(data, status)
+        return response.json(data, status, default=str)
 
     @abc.abstractmethod
     async def perform_delete(self, request: request.Request, nest_obj: Document) -> ResponseType:
@@ -332,7 +332,7 @@ class NestedDetailView(NestViewBase):
         except ValidationError as e:
             raise exceptions.ValidationError(message=str(e))
 
-        return response.json(data, status)
+        return response.json(data, status, default=str)
 
     @abc.abstractmethod
     async def perform_get(self, request: request.Request, nest_obj: Document, obj: Document) -> ResponseType:
@@ -347,7 +347,7 @@ class NestedDetailView(NestViewBase):
         except ValidationError as e:
             raise exceptions.ValidationError(message=str(e))
 
-        return response.json(data, status)
+        return response.json(data, status, default=str)
 
     @abc.abstractmethod
     async def perform_post(self, request: request.Request, nest_obj: Document, obj: Document) -> ResponseType:
@@ -362,7 +362,7 @@ class NestedDetailView(NestViewBase):
         except ValidationError as e:
             raise exceptions.ValidationError(message=str(e))
 
-        return response.json(data, status)
+        return response.json(data, status, default=str)
 
     @abc.abstractmethod
     async def perform_put(self, request: request.Request, nest_obj: Document, obj: Document) -> ResponseType:
@@ -373,7 +373,7 @@ class NestedDetailView(NestViewBase):
         obj = self.get_model(pk=pk)
 
         data, status = await self.perform_delete(request=request, nest_obj=nest_obj, obj=obj)
-        return response.json(data, status)
+        return response.json(data, status, default=str)
 
     @abc.abstractmethod
     async def perform_delete(self, request: request.Request, nest_obj: Document, obj: Document) -> ResponseType:
