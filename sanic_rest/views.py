@@ -5,14 +5,16 @@ import os
 import uuid
 from collections import defaultdict
 from pathlib import Path
-from typing import Tuple, Dict, Any, List, Type
+from typing import Tuple, Dict, Any, List, Type, Optional
 
 import aiofiles
-from gcp_pilot.datastore import Document, DoesNotExist
+import pydantic
+from gcp_pilot.datastore import Document, DoesNotExist, DEFAULT_PK_FIELD_TYPE, DEFAULT_PK_FIELD_NAME
 from gcp_pilot.exceptions import ValidationError
-from sanic import request, response, views
+import sanic.views
+import sanic.request
 
-from sanic_rest import exceptions, validator
+from sanic_rest import exceptions
 
 PayloadType = Dict[str, Any]
 ResponseType = Tuple[PayloadType, int]
@@ -20,22 +22,22 @@ ResponseType = Tuple[PayloadType, int]
 STAGE_DIR = os.environ.get("SANIC_FILE_DIR", default=Path(__file__).parent)
 
 
-def get_model_or_404(model_klass: Type[Document], pk: str, query_filters: Dict = None) -> Document:
+def get_model_or_404(model_klass: Type[Document], pk: Any, query_filters: Dict = None) -> Document:
     query_filters = query_filters or {}
     try:
         return model_klass.documents.get(id=pk, **query_filters)
-    except DoesNotExist as e:
-        raise exceptions.NotFoundError() from e
+    except DoesNotExist as exc:
+        raise exceptions.NotFoundError() from exc
 
 
 class FileProcessingMixin:
-    async def store_file(self, field_name: str, file: request.File) -> str:
+    async def store_file(self, field_name: str, file: sanic.request.File) -> str:
         identifier = uuid.uuid4().hex
         filepath = Path("media") / identifier / field_name / file.name
         output = await self.write_file(file=file, filepath=filepath)
         return str(output)
 
-    async def process_files(self, files: Dict[str, request.File]) -> Dict[str, Any]:
+    async def process_files(self, files: Dict[str, sanic.request.File]) -> Dict[str, Any]:
         file_updates: Dict[str, Any] = defaultdict(list)
         for key, key_files in files.items():
             for file in key_files:
@@ -47,45 +49,35 @@ class FileProcessingMixin:
         return file_updates
 
     @classmethod
-    async def write_file(cls, file: request.File, filepath: Path) -> str:
+    async def write_file(cls, file: sanic.request.File, filepath: Path) -> str:
         filepath = STAGE_DIR / filepath
         filepath.parent.mkdir(parents=True, exist_ok=True)
-        async with aiofiles.open(filepath, "wb") as f:
-            await f.write(file.body)
-        await f.close()
+        async with aiofiles.open(filepath, "wb") as file:
+            await file.write(file.body)
+        await file.close()
         return str(filepath)
 
 
 class ValidationMixin:
-    def validate(self, data, model_klass=None, partial=False):
+    def validate(self, data, model_klass: Optional[Type[Document]] = None, current_obj: Optional[Document] = None):
         model_klass = model_klass or self.model
-        info = validator.ModelInfo.build(model_klass=model_klass)
-        errors = info.validate(item=data, partial=partial)
-        if errors:
-            raise exceptions.ValidationError(message=errors)
+
+        model_data = (current_obj.dict() if current_obj else {}) | data
+        try:
+            model_klass(**model_data)
+        except pydantic.ValidationError as exc:
+            field_errors = {}
+            for err in exc.errors():
+                for field in err["loc"]:
+                    field_errors[field] = err["msg"]
+            raise exceptions.ValidationError(message=field_errors) from exc
         return data
 
-    def _validate_item(self, item, options, partial=False) -> Dict[str, Any]:
-        errors = {}
 
-        for field_name, field_info in options["fields"]:
-            if not partial and field_info["required"] and field_name not in item:
-                errors[field_name] = f"Mandatory field"
-                continue
-
-            provided_items = item[field_name]
-
-            if field_info["repeated"]:
-                for provided_item in provided_items:
-                    errors[field_name] = self._validate_item(item=provided_item, options=field_info, partial=False)
-
-        return errors
-
-
-class ViewBase(FileProcessingMixin, ValidationMixin, views.HTTPMethodView):
+class ViewBase(FileProcessingMixin, ValidationMixin, sanic.views.HTTPMethodView):
     model: Type[Document]
 
-    def _parse_body(self, request: request.Request) -> Tuple[Dict[str, Any], Dict[str, request.File]]:
+    def _parse_body(self, request: sanic.request.Request) -> Tuple[Dict[str, Any], Dict[str, sanic.request.File]]:
         if "form" in request.content_type:
             data = {}
             for key, value in dict(request.form).items():
@@ -99,12 +91,12 @@ class ViewBase(FileProcessingMixin, ValidationMixin, views.HTTPMethodView):
         return data, dict(request.files)
 
     def _parse_pk(self, pk: str):
-        pk_field_name = self.model.Meta.pk_field
-        pk_field_type = self.model.Meta.fields[self.model.Meta.pk_field]
+        pk_field_name = DEFAULT_PK_FIELD_NAME
+        pk_field_type = DEFAULT_PK_FIELD_TYPE
         try:
             return pk_field_type(pk)
-        except ValueError as e:
-            raise exceptions.ValidationError(f"{pk_field_name} field must be {pk_field_type.__name__}") from e
+        except ValueError as exc:
+            raise exceptions.ValidationError(f"{pk_field_name} field must be {pk_field_type.__name__}") from exc
 
     def get_model(self, pk: str) -> Document:
         return get_model_or_404(model_klass=self.model, pk=self._parse_pk(pk))
@@ -113,24 +105,24 @@ class ViewBase(FileProcessingMixin, ValidationMixin, views.HTTPMethodView):
 class ListView(ViewBase, abc.ABC):
     search_field: str = None
 
-    async def get(self, request: request.Request) -> response.HTTPResponse:
+    async def get(self, request: sanic.request.Request) -> sanic.response.HTTPResponse:
         query_args, page, page_size = self._parse_query_args(request=request)
         try:
             items = await self.perform_get(query_filters=query_args)
-        except ValidationError as e:
-            raise exceptions.ValidationError(message=str(e))
+        except ValidationError as exc:
+            raise exceptions.ValidationError(message=str(exc)) from exc
 
         items_in_page = self._paginate(items=items, page=page, page_size=page_size)
 
         response_body = {
-            "results": [obj.serialize() for obj in items_in_page],
+            "results": [obj.to_dict() for obj in items_in_page],
             "count": len(items),
             "num_pages": int(math.ceil(len(items) / page_size)),
         }
-        return response.json(response_body, 200 if any(items_in_page) else 404, default=str)
+        return sanic.response.json(response_body, 200 if any(items_in_page) else 404, default=str)
 
-    def _parse_query_args(self, request: request.Request) -> Tuple[Dict[str, Any], int, int]:
-        query_args = dict()
+    def _parse_query_args(self, request: sanic.request.Request) -> Tuple[Dict[str, Any], int, int]:
+        query_args = {}
         for key, value in request.query_args:
             if key == "q":
                 key = f"{self.search_field}__startswith"
@@ -146,12 +138,12 @@ class ListView(ViewBase, abc.ABC):
         try:
             page = int(query_args.pop("page", 1))
             page_size = int(query_args.pop("page_size", 10))
-        except ValueError as e:
-            raise exceptions.ValidationError(f"page and page_size must be integers") from e
+        except ValueError as exc:
+            raise exceptions.ValidationError("page and page_size must be integers") from exc
         if page < 1:
-            raise exceptions.ValidationError(f"page starts at 1")
+            raise exceptions.ValidationError("page starts at 1")
         if page_size < 1:
-            raise exceptions.ValidationError(f"page_size must be at least at 1")
+            raise exceptions.ValidationError("page_size must be at least at 1")
 
         return query_args, page, page_size
 
@@ -169,93 +161,96 @@ class ListView(ViewBase, abc.ABC):
     async def perform_get(self, query_filters) -> List[Document]:
         return list(self.model.documents.filter(**query_filters))
 
-    async def post(self, request: request.Request) -> response.HTTPResponse:
+    async def post(self, request: sanic.request.Request) -> sanic.response.HTTPResponse:
         data, files = self._parse_body(request=request)
-        validated_data = self.validate(data=data, partial=False)
+        validated_data = self.validate(data=data)
 
         try:
             obj = await self.perform_create(data=validated_data, files=files)
-        except ValidationError as e:
-            raise exceptions.ValidationError(message=str(e))
+        except ValidationError as exc:
+            raise exceptions.ValidationError(message=str(exc)) from exc
 
-        response_body = obj.serialize()
-        return response.json(response_body, 201, default=str)
+        response_body = obj.to_dict()
+        return sanic.response.json(response_body, 201, default=str)
 
-    async def perform_create(self, data: PayloadType, files: Dict[str, request.File]) -> Document:
+    async def perform_create(self, data: PayloadType, files: Dict[str, sanic.request.File]) -> Document:
         file_updates = await self.process_files(files=files)
 
-        obj = self.model.deserialize(**data, **file_updates)
+        obj = self.model.from_dict(**data, **file_updates)
         return obj.save()
 
-    async def options(self, request: request.Request) -> response.HTTPResponse:
+    async def options(self, request: sanic.request.Request) -> sanic.response.HTTPResponse:
         data = await self.perform_options()
-        return response.json(data, 200, default=str)
+        return sanic.response.json(data, 200, default=str)
 
     async def perform_options(self) -> PayloadType:
-        return validator.ModelInfo.build(model_klass=self.model).as_dict
+        return {
+            field_info.name: {"required": field_info.required, "type": field_info.type_.__name__}
+            for field_info in self.model.__fields__
+        }
 
 
 class DetailView(ViewBase, abc.ABC):
-    async def get(self, request: request.Request, pk: str) -> response.HTTPResponse:
+    async def get(self, request: sanic.request.Request, pk: str) -> sanic.response.HTTPResponse:
         current_obj = self.get_model(pk=pk)
 
         try:
             obj = await self.perform_get(obj=current_obj, query_filters={})
-        except DoesNotExist as e:
-            raise exceptions.NotFoundError() from e
-        except ValidationError as e:
-            raise exceptions.ValidationError(message=str(e))
+        except DoesNotExist as exc:
+            raise exceptions.NotFoundError() from exc
+        except ValidationError as exc:
+            raise exceptions.ValidationError(message=str(exc)) from exc
 
-        data = obj.serialize()
-        return response.json(data, 200, default=str)
+        data = obj.to_dict()
+        return sanic.response.json(data, 200, default=str)
 
     async def perform_get(self, obj: Document, query_filters) -> Document:
         return obj
 
-    async def put(self, request: request.Request, pk: str) -> response.HTTPResponse:
+    async def put(self, request: sanic.request.Request, pk: str) -> sanic.response.HTTPResponse:
         current_obj = self.get_model(pk=pk)
 
         data, files = self._parse_body(request=request)
-        validated_data = self.validate(data=data, partial=False)
+        validated_data = self.validate(data=data)
 
         try:
             obj = await self.perform_create(obj=current_obj, data=validated_data, files=files)
-        except ValidationError as e:
-            raise exceptions.ValidationError(message=str(e))
+        except ValidationError as exc:
+            raise exceptions.ValidationError(message=str(exc)) from exc
 
-        response_body = obj.serialize()
-        return response.json(response_body, 200, default=str)
+        response_body = obj.to_dict()
+        return sanic.response.json(response_body, 200, default=str)
 
-    async def perform_create(self, obj: Document, data: PayloadType, files: Dict[str, request.File]) -> Document:
+    async def perform_create(self, obj: Document, data: PayloadType, files: Dict[str, sanic.request.File]) -> Document:
         file_updates = await self.process_files(files=files)
 
-        obj = self.model.deserialize(pk=obj.pk, **data, **file_updates)
+        obj = self.model.from_dict(pk=obj.pk, **data, **file_updates)
         return obj.save()
 
-    async def patch(self, request: request.Request, pk: str) -> response.HTTPResponse:
+    async def patch(self, request: sanic.request.Request, pk: str) -> sanic.response.HTTPResponse:
         current_obj = self.get_model(pk=pk)
 
         data, files = self._parse_body(request=request)
-        validated_data = self.validate(data=data, partial=True)
+        validated_data = self.validate(data=data, current_obj=current_obj)
 
         try:
             obj = await self.perform_update(obj=current_obj, data=validated_data, files=files)
-        except ValidationError as e:
-            raise exceptions.ValidationError(message=str(e))
+        except ValidationError as exc:
+            raise exceptions.ValidationError(message=str(exc)) from exc
 
-        response_body = obj.serialize()
-        return response.json(response_body, 200, default=str)
+        response_body = obj.to_dict()
+        return sanic.response.json(response_body, 200, default=str)
 
-    async def perform_update(self, obj: Document, data: PayloadType, files: Dict[str, request.File]) -> Document:
+    async def perform_update(self, obj: Document, data: PayloadType, files: Dict[str, sanic.request.File]) -> Document:
         file_updates = await self.process_files(files=files)
 
         obj = self.model.documents.update(pk=obj.pk, **data, **file_updates)
 
         return obj
 
-    async def delete(self, request: request.Request, pk: str) -> response.HTTPResponse:
+    async def delete(self, request: sanic.request.Request, pk: str) -> sanic.response.HTTPResponse:
         await self.perform_delete(pk=pk)
-        return response.json({}, 204, default=str)
+        return sanic.response.json({}, 204, default=str)
 
     async def perform_delete(self, pk: str) -> None:
         self.model.documents.delete(pk=pk)
@@ -269,112 +264,112 @@ class NestViewBase(ViewBase):
 
 
 class NestedListView(NestViewBase):
-    async def get(self, request: request.Request, nest_pk: str) -> response.HTTPResponse:
+    async def get(self, request: sanic.request.Request, nest_pk: str) -> sanic.response.HTTPResponse:
         nest_obj = self.get_nest_model(pk=nest_pk)
 
         try:
             data, status = await self.perform_get(request=request, nest_obj=nest_obj)
-        except ValidationError as e:
-            raise exceptions.ValidationError(message=str(e))
+        except ValidationError as exc:
+            raise exceptions.ValidationError(message=str(exc)) from exc
 
-        return response.json(data, status, default=str)
+        return sanic.response.json(data, status, default=str)
 
     @abc.abstractmethod
-    async def perform_get(self, request: request.Request, nest_obj: Document) -> ResponseType:
+    async def perform_get(self, request: sanic.request.Request, nest_obj: Document) -> ResponseType:
         raise NotImplementedError()
 
-    async def post(self, request: request.Request, nest_pk: str) -> response.HTTPResponse:
+    async def post(self, request: sanic.request.Request, nest_pk: str) -> sanic.response.HTTPResponse:
         nest_obj = self.get_nest_model(pk=nest_pk)
 
         try:
             data, status = await self.perform_post(request=request, nest_obj=nest_obj)
-        except ValidationError as e:
-            raise exceptions.ValidationError(message=str(e))
+        except ValidationError as exc:
+            raise exceptions.ValidationError(message=str(exc)) from exc
 
-        return response.json(data, status, default=str)
+        return sanic.response.json(data, status, default=str)
 
     @abc.abstractmethod
-    async def perform_post(self, request: request.Request, nest_obj: Document) -> ResponseType:
+    async def perform_post(self, request: sanic.request.Request, nest_obj: Document) -> ResponseType:
         raise NotImplementedError()
 
-    async def put(self, request: request.Request, nest_pk: str) -> response.HTTPResponse:
+    async def put(self, request: sanic.request.Request, nest_pk: str) -> sanic.response.HTTPResponse:
         nest_obj = self.get_nest_model(pk=nest_pk)
 
         try:
             data, status = await self.perform_put(request=request, nest_obj=nest_obj)
-        except ValidationError as e:
-            raise exceptions.ValidationError(message=str(e))
+        except ValidationError as exc:
+            raise exceptions.ValidationError(message=str(exc)) from exc
 
-        return response.json(data, status, default=str)
+        return sanic.response.json(data, status, default=str)
 
     @abc.abstractmethod
-    async def perform_put(self, request: request.Request, nest_obj: Document) -> ResponseType:
+    async def perform_put(self, request: sanic.request.Request, nest_obj: Document) -> ResponseType:
         raise NotImplementedError()
 
-    async def delete(self, request: request.Request, nest_pk: str) -> response.HTTPResponse:
+    async def delete(self, request: sanic.request.Request, nest_pk: str) -> sanic.response.HTTPResponse:
         nest_obj = self.get_nest_model(pk=nest_pk)
 
         data, status = await self.perform_delete(request=request, nest_obj=nest_obj)
-        return response.json(data, status, default=str)
+        return sanic.response.json(data, status, default=str)
 
     @abc.abstractmethod
-    async def perform_delete(self, request: request.Request, nest_obj: Document) -> ResponseType:
+    async def perform_delete(self, request: sanic.request.Request, nest_obj: Document) -> ResponseType:
         raise NotImplementedError()
 
 
 class NestedDetailView(NestViewBase):
-    async def get(self, request: request.Request, nest_pk: str, pk: str) -> response.HTTPResponse:
+    async def get(self, request: sanic.request.Request, nest_pk: str, pk: str) -> sanic.response.HTTPResponse:
         nest_obj = self.get_nest_model(pk=nest_pk)
         obj = self.get_model(pk=pk)
 
         try:
             data, status = await self.perform_get(request=request, nest_obj=nest_obj, obj=obj)
-        except ValidationError as e:
-            raise exceptions.ValidationError(message=str(e))
+        except ValidationError as exc:
+            raise exceptions.ValidationError(message=str(exc)) from exc
 
-        return response.json(data, status, default=str)
+        return sanic.response.json(data, status, default=str)
 
     @abc.abstractmethod
-    async def perform_get(self, request: request.Request, nest_obj: Document, obj: Document) -> ResponseType:
+    async def perform_get(self, request: sanic.request.Request, nest_obj: Document, obj: Document) -> ResponseType:
         raise NotImplementedError()
 
-    async def post(self, request: request.Request, nest_pk: str, pk: str) -> response.HTTPResponse:
+    async def post(self, request: sanic.request.Request, nest_pk: str, pk: str) -> sanic.response.HTTPResponse:
         nest_obj = self.get_nest_model(pk=nest_pk)
         obj = self.get_model(pk=pk)
 
         try:
             data, status = await self.perform_post(request=request, nest_obj=nest_obj, obj=obj)
-        except ValidationError as e:
-            raise exceptions.ValidationError(message=str(e))
+        except ValidationError as exc:
+            raise exceptions.ValidationError(message=str(exc)) from exc
 
-        return response.json(data, status, default=str)
+        return sanic.response.json(data, status, default=str)
 
     @abc.abstractmethod
-    async def perform_post(self, request: request.Request, nest_obj: Document, obj: Document) -> ResponseType:
+    async def perform_post(self, request: sanic.request.Request, nest_obj: Document, obj: Document) -> ResponseType:
         raise NotImplementedError()
 
-    async def put(self, request: request.Request, nest_pk: str, pk: str) -> response.HTTPResponse:
+    async def put(self, request: sanic.request.Request, nest_pk: str, pk: str) -> sanic.response.HTTPResponse:
         nest_obj = self.get_nest_model(pk=nest_pk)
         obj = self.get_model(pk=pk)
 
         try:
             data, status = await self.perform_put(request=request, nest_obj=nest_obj, obj=obj)
-        except ValidationError as e:
-            raise exceptions.ValidationError(message=str(e))
+        except ValidationError as exc:
+            raise exceptions.ValidationError(message=str(exc)) from exc
 
-        return response.json(data, status, default=str)
+        return sanic.response.json(data, status, default=str)
 
     @abc.abstractmethod
-    async def perform_put(self, request: request.Request, nest_obj: Document, obj: Document) -> ResponseType:
+    async def perform_put(self, request: sanic.request.Request, nest_obj: Document, obj: Document) -> ResponseType:
         raise NotImplementedError()
 
-    async def delete(self, request: request.Request, nest_pk: str, pk: str) -> response.HTTPResponse:
+    async def delete(self, request: sanic.request.Request, nest_pk: str, pk: str) -> sanic.response.HTTPResponse:
         nest_obj = self.get_nest_model(pk=nest_pk)
         obj = self.get_model(pk=pk)
 
         data, status = await self.perform_delete(request=request, nest_obj=nest_obj, obj=obj)
-        return response.json(data, status, default=str)
+        return sanic.response.json(data, status, default=str)
 
     @abc.abstractmethod
-    async def perform_delete(self, request: request.Request, nest_obj: Document, obj: Document) -> ResponseType:
+    async def perform_delete(self, request: sanic.request.Request, nest_obj: Document, obj: Document) -> ResponseType:
         raise NotImplementedError()
