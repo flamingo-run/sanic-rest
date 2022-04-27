@@ -18,11 +18,10 @@ check:
 
 lint:
 	@echo "Checking code style ..."
-	@poetry run pylint --rcfile=./.pylintrc sanic_rest
+	@poetry run pylint sanic_rest
 
 unit:
 	@echo "Running unit tests ..."
-	@poetry run nosetests
 
 clean:
 	@rm -rf .coverage coverage.xml dist/ build/ *.egg-info/

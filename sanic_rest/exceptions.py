@@ -11,7 +11,7 @@ class HttpException(Exception):
 
     @property
     def response(self):
-        return {'error': self.message}
+        return {"error": self.message}
 
 
 @dataclass
