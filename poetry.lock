@@ -220,7 +220,7 @@ python-dateutil = ">=2.4"
 
 [[package]]
 name = "gcp-pilot"
-version = "0.48.0"
+version = "0.48.1"
 description = "Google Cloud Platform Friendly Pilot"
 category = "main"
 optional = false
@@ -1170,8 +1170,8 @@ faker = [
     {file = "Faker-13.4.0.tar.gz", hash = "sha256:2a9716f2c409224121144f0d2fdc7105e978e2e266deb4d8216061d9668951fc"},
 ]
 gcp-pilot = [
-    {file = "gcp-pilot-0.48.0.tar.gz", hash = "sha256:2d5734bf4509ab7dffa123195952b0fabe9ea73848912d1809c3d3792f049190"},
-    {file = "gcp_pilot-0.48.0-py3-none-any.whl", hash = "sha256:42642b4ebaacd098e4dc1ec1d44fdbd878c7eae35654be6d21642f7cef007131"},
+    {file = "gcp-pilot-0.48.1.tar.gz", hash = "sha256:c8f22acd2e36b4f34cd3e7e1c84a2133629df133d94561fa4f98b3c177e6a26f"},
+    {file = "gcp_pilot-0.48.1-py3-none-any.whl", hash = "sha256:a2badeaf5e53178fdf207c7d56ef3c4e4757f979592a5039ef7d7192d1ac879d"},
 ]
 google-api-core = [
     {file = "google-api-core-2.7.2.tar.gz", hash = "sha256:65480309a7437f739e4476da037af02a3ec8263f1d1f89f72bbdc8f54fe402d2"},

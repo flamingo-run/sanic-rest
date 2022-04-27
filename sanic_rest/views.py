@@ -1,4 +1,5 @@
 import abc
+import inspect
 import json
 import math
 import os
@@ -9,7 +10,13 @@ from typing import Tuple, Dict, Any, List, Type, Optional
 
 import aiofiles
 import pydantic
-from gcp_pilot.datastore import Document, DoesNotExist, DEFAULT_PK_FIELD_TYPE, DEFAULT_PK_FIELD_NAME
+from gcp_pilot.datastore import (
+    Document,
+    DoesNotExist,
+    DEFAULT_PK_FIELD_TYPE,
+    DEFAULT_PK_FIELD_NAME,
+    EmbeddedDocument,
+)
 from gcp_pilot.exceptions import ValidationError
 import sanic.views
 import sanic.request
@@ -184,10 +191,20 @@ class ListView(ViewBase, abc.ABC):
         return sanic.response.json(data, 200, default=str)
 
     async def perform_options(self) -> PayloadType:
-        return {
-            field_info.name: {"required": field_info.required, "type": field_info.type_.__name__}
-            for field_info in self.model.__fields__
-        }
+        def _get_options(klass):
+            payload = {}
+            for field_name, field_info in klass.__fields__.items():
+                if inspect.isclass(field_info.type_) and issubclass(field_info.type_, EmbeddedDocument):
+                    field_type = "struct"
+                    extra = {"struct": _get_options(klass=field_info.type_)}
+                else:
+                    field_type = field_info.type_.__name__
+                    extra = {}
+                payload[field_name] = {"required": field_info.required, "type": field_type, **extra}
+
+            return payload
+
+        return _get_options(klass=self.model)
 
 
 class DetailView(ViewBase, abc.ABC):
