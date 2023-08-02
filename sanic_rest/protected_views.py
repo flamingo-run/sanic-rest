@@ -2,7 +2,7 @@ from abc import ABC
 
 from sanic_jwt import protected
 
-from sanic_rest.views import ListView, DetailView, NestedListView, NestedDetailView
+from sanic_rest.views import DetailView, ListView, NestedDetailView, NestedListView
 
 
 class ProtectedMixin:

@@ -6,30 +6,30 @@ import os
 import uuid
 from collections import defaultdict
 from pathlib import Path
-from typing import Tuple, Dict, Any, List, Type, Optional
+from typing import Any
 
 import aiofiles
 import pydantic
+import sanic.request
+import sanic.views
 from gcp_pilot.datastore import (
+    DEFAULT_PK_FIELD_NAME,
+    DEFAULT_PK_FIELD_TYPE,
     Document,
     DoesNotExist,
-    DEFAULT_PK_FIELD_TYPE,
-    DEFAULT_PK_FIELD_NAME,
     EmbeddedDocument,
 )
 from gcp_pilot.exceptions import ValidationError
-import sanic.views
-import sanic.request
 
 from sanic_rest import exceptions
 
-PayloadType = Dict[str, Any]
-ResponseType = Tuple[PayloadType, int]
+PayloadType = dict[str, Any]
+ResponseType = tuple[PayloadType, int]
 
 STAGE_DIR = os.environ.get("SANIC_FILE_DIR", default=Path(__file__).parent)
 
 
-def get_model_or_404(model_klass: Type[Document], pk: Any, query_filters: Dict = None) -> Document:
+def get_model_or_404(model_klass: type[Document], pk: Any, query_filters: dict | None = None) -> Document:
     query_filters = query_filters or {}
     try:
         return model_klass.documents.get(id=pk, **query_filters)
@@ -44,8 +44,8 @@ class FileProcessingMixin:
         output = await self.write_file(file=file, filepath=filepath)
         return str(output)
 
-    async def process_files(self, files: Dict[str, sanic.request.File]) -> Dict[str, Any]:
-        file_updates: Dict[str, Any] = defaultdict(list)
+    async def process_files(self, files: dict[str, sanic.request.File]) -> dict[str, Any]:
+        file_updates: dict[str, Any] = defaultdict(list)
         for key, key_files in files.items():
             for file in key_files:
                 filepath = await self.store_file(
@@ -66,7 +66,7 @@ class FileProcessingMixin:
 
 
 class ValidationMixin:
-    def validate(self, data, model_klass: Optional[Type[Document]] = None, current_obj: Optional[Document] = None):
+    def validate(self, data, model_klass: type[Document] | None = None, current_obj: Document | None = None):
         model_klass = model_klass or self.model
 
         model_data = (current_obj.dict() if current_obj else {}) | data
@@ -82,13 +82,13 @@ class ValidationMixin:
 
 
 class ViewBase(FileProcessingMixin, ValidationMixin, sanic.views.HTTPMethodView):
-    model: Type[Document]
+    model: type[Document]
 
-    def _parse_body(self, request: sanic.request.Request) -> Tuple[Dict[str, Any], Dict[str, sanic.request.File]]:
+    def _parse_body(self, request: sanic.request.Request) -> tuple[dict[str, Any], dict[str, sanic.request.File]]:
         if "form" in request.content_type:
             data = {}
-            for key, value in dict(request.form).items():
-                value = [json.loads(item) for item in value]
+            for key, form_value in dict(request.form).items():
+                value = [json.loads(item) for item in form_value]
                 if len(value) == 1:
                     value = value[0]
                 data[key] = value
@@ -128,11 +128,10 @@ class ListView(ViewBase, abc.ABC):
         }
         return sanic.response.json(response_body, 200 if any(items_in_page) else 404, default=str)
 
-    def _parse_query_args(self, request: sanic.request.Request) -> Tuple[Dict[str, Any], int, int]:
+    def _parse_query_args(self, request: sanic.request.Request) -> tuple[dict[str, Any], int, int]:
         query_args = {}
-        for key, value in request.query_args:
-            if key == "q":
-                key = f"{self.search_field}__startswith"
+        for q_key, value in request.query_args:
+            key = f"{self.search_field}__startswith" if q_key == "q" else q_key
 
             if key not in query_args:
                 query_args[key] = value
@@ -154,7 +153,7 @@ class ListView(ViewBase, abc.ABC):
 
         return query_args, page, page_size
 
-    def _paginate(self, items: List[Document], page: int, page_size: int) -> List[Document]:
+    def _paginate(self, items: list[Document], page: int, page_size: int) -> list[Document]:
         # TODO Add proper pagination with cursors
         start_idx = (page - 1) * page_size
         start_idx = min(start_idx, len(items))
@@ -165,7 +164,7 @@ class ListView(ViewBase, abc.ABC):
         items_in_page = items[start_idx:end_idx]
         return items_in_page
 
-    async def perform_get(self, query_filters) -> List[Document]:
+    async def perform_get(self, query_filters) -> list[Document]:
         return list(self.model.documents.filter(**query_filters))
 
     async def post(self, request: sanic.request.Request) -> sanic.response.HTTPResponse:
@@ -180,7 +179,7 @@ class ListView(ViewBase, abc.ABC):
         response_body = obj.to_dict()
         return sanic.response.json(response_body, 201, default=str)
 
-    async def perform_create(self, data: PayloadType, files: Dict[str, sanic.request.File]) -> Document:
+    async def perform_create(self, data: PayloadType, files: dict[str, sanic.request.File]) -> Document:
         file_updates = await self.process_files(files=files)
 
         obj = self.model.from_dict(**data, **file_updates)
@@ -238,7 +237,7 @@ class DetailView(ViewBase, abc.ABC):
         response_body = obj.to_dict()
         return sanic.response.json(response_body, 200, default=str)
 
-    async def perform_create(self, obj: Document, data: PayloadType, files: Dict[str, sanic.request.File]) -> Document:
+    async def perform_create(self, obj: Document, data: PayloadType, files: dict[str, sanic.request.File]) -> Document:
         file_updates = await self.process_files(files=files)
 
         obj = self.model.from_dict(pk=obj.pk, **data, **file_updates)
@@ -258,7 +257,7 @@ class DetailView(ViewBase, abc.ABC):
         response_body = obj.to_dict()
         return sanic.response.json(response_body, 200, default=str)
 
-    async def perform_update(self, obj: Document, data: PayloadType, files: Dict[str, sanic.request.File]) -> Document:
+    async def perform_update(self, obj: Document, data: PayloadType, files: dict[str, sanic.request.File]) -> Document:
         file_updates = await self.process_files(files=files)
 
         obj = self.model.documents.update(pk=obj.pk, **data, **file_updates)
@@ -274,7 +273,7 @@ class DetailView(ViewBase, abc.ABC):
 
 
 class NestViewBase(ViewBase):
-    nest_model: Type[Document]
+    nest_model: type[Document]
 
     def get_nest_model(self, pk: str):
         return get_model_or_404(model_klass=self.nest_model, pk=pk)
