@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "sanic-rest"
-version = "1.7.1"
+version = "1.8.0"
 description = "Sanic Rest Framework with Google Cloud Datastore"
 authors = ["Joao Daher <joao@daher.dev>"]
 repository = "https://github.com/flamingo-run/sanic-rest"
@@ -12,7 +12,7 @@ packages = [
 
 
 [tool.poetry.dependencies]
-python = ">=3.8,<3.11"
+python = "~3.11"
 sanic = "*"
 sanic-openapi = "*"
 gcp-pilot = { version = "*", extras = ["datastore", "storage"]}
@@ -27,33 +27,42 @@ auth = ["sanic-jwt", "passlib", "argon2_cffi"]
 
 [tool.poetry.dev-dependencies]
 black = "*"
-pylint = "*"
+ruff = "*"
 safety = "*"
 coverage = "*"
 pytest = "*"
 pytest-cov = "*"
+pytest-rerunfailures = "*"
+pytest-xdist = "*"
+pytest-sugar = "*"
+pytest-random-order = "*"
+pytest-timeout = "*"
 
 [tool.black]
 line-length = 120
-target-version = ['py310']
+target-version = ['py311']
 
-[tool.pylint.messages_control]
-disable = "C0330, C0326, C0114, C0115, C0116, W0212, W0511, W0613, W1203, R0901, R0903, R0913, R0201, R0902, C0204, R0401, R0801, R0904, R0914"
 
-[tool.pylint.format]
-max-line-length = "120"
+[tool.ruff]
+select = ["RUF", "I", "PL", "F", "COM", "UP", "T10", "T20", "DTZ", "SIM", "TID", "PTH", "ERA", "TRY"]
+ignore = ["PLR2004", "PLR0911", "PLR0913", "TRY003", "RUF012"]
+line-length = 120
+target-version = "py311"
 
-[tool.pylint.basic]
-good-names= "i, j, k, m, n, dt, db, pk, tz, qs, ex, _"
+#[tool.ruff.isort]
+#known-first-party = ["jaiminho_api", "v1", "utils"]
+
+
+[tool.pytest.ini_options]
+addopts = "-n auto --reruns 1 --random-order --cov"
+python_files = ["tests_*.py"]
+
 
 [tool.coverage.run]
 branch = true
-source = ["sanic_rest"]
-
-[tool.pytest.ini_options]
-addopts = "--cov"
+source = ["energyview_api"]
 
 
 [build-system]
-requires = ["poetry"]
-build-backend = "poetry.masonry.api"
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

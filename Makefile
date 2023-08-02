@@ -18,7 +18,13 @@ check:
 
 lint:
 	@echo "Checking code style ..."
-	@poetry run pylint sanic_rest
+	poetry run black --check .
+	poetry run ruff check .
+
+style:
+	@echo "Applying code style ..."
+	poetry run black .
+	poetry run ruff . --fix
 
 unit:
 	@echo "Running unit tests ..."
