@@ -14,17 +14,19 @@ test:
 	@make unit
 
 check:
-	@poetry check
+	@echo "Checking safety and integrity ..."
+	poetry check
+	poetry run safety check
 
 lint:
 	@echo "Checking code style ..."
-	poetry run black --check .
 	poetry run ruff check .
+	poetry run ruff format --check .
 
 style:
 	@echo "Applying code style ..."
-	poetry run black .
-	poetry run ruff . --fix
+	poetry run ruff check . --fix
+	poetry run ruff format .
 
 unit:
 	@echo "Running unit tests ..."

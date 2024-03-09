@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "sanic-rest"
-version = "1.8.0"
+version = "1.9.0"
 description = "Sanic Rest Framework with Google Cloud Datastore"
 authors = ["Joao Daher <joao@daher.dev>"]
 repository = "https://github.com/flamingo-run/sanic-rest"
@@ -12,7 +12,7 @@ packages = [
 
 
 [tool.poetry.dependencies]
-python = "~3.11"
+python = ">=3.11,<3.13"
 sanic = "*"
 sanic-openapi = "*"
 gcp-pilot = { version = "*", extras = ["datastore", "storage"]}
@@ -20,13 +20,10 @@ sanic-jwt = { version = "*", optional = true }
 passlib = { version = "*", optional = true }
 argon2_cffi = { version = "*", optional = true }
 
-
 [tool.poetry.extras]
 auth = ["sanic-jwt", "passlib", "argon2_cffi"]
 
-
 [tool.poetry.dev-dependencies]
-black = "*"
 ruff = "*"
 safety = "*"
 coverage = "*"
@@ -38,19 +35,17 @@ pytest-sugar = "*"
 pytest-random-order = "*"
 pytest-timeout = "*"
 
-[tool.black]
-line-length = 120
-target-version = ['py311']
-
 
 [tool.ruff]
-select = ["RUF", "I", "PL", "F", "COM", "UP", "T10", "T20", "DTZ", "SIM", "TID", "PTH", "ERA", "TRY"]
-ignore = ["PLR2004", "PLR0911", "PLR0913", "TRY003", "RUF012"]
 line-length = 120
-target-version = "py311"
+target-version = "py312"
 
-#[tool.ruff.isort]
-#known-first-party = ["jaiminho_api", "v1", "utils"]
+[tool.ruff.lint]
+select = ["RUF", "I", "PL", "F", "UP", "T10", "T20", "DTZ", "SIM", "TID", "PTH", "ERA", "TRY"]
+ignore = ["PLR2004", "PLR0911", "PLR0913", "TRY003", "RUF012"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sanic_rest", "tests"]
 
 
 [tool.pytest.ini_options]
@@ -60,7 +55,7 @@ python_files = ["tests_*.py"]
 
 [tool.coverage.run]
 branch = true
-source = ["energyview_api"]
+source = ["sanic_rest"]
 
 
 [build-system]
